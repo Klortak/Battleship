@@ -6,12 +6,10 @@ import sys
 import os
 
 ##################################
-host = False
 
 turns = 100
 
 boardSize = 10
-# Left justify text to keep aligned
 
 ##################################
 
@@ -19,13 +17,17 @@ boardSize = 10
 if boardSize > 26:
     raise IndexError('Out of bounds')
 
+answer = input('Are you hosting: Y or N? >>> ')
+
+host = answer.upper() == 'Y'
+
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 if host: 
     server.bind((socket.gethostname(), 1234))
     server.listen(5)
 else:
-    server.connect((socket.gethostname(), 1234))
+    server.connect((input('To join a game, enter an IP Address - Ex: 123.456.789.123 >>> '), 1234))
 
 client = None
 
@@ -70,8 +72,8 @@ class Ship():
         while not self.withinBounds(x, y, dir) or self.occupied(grid, x, y):
             x, y = random.randint(1, boardSize), random.randint(1, boardSize)
 
-        # Checks that each coord is not occupied and is within bounds
-        while self.withinBounds(x, y, dir) and not self.occupied(grid, x, y):
+        # Checks that each coord is not occupied
+        while not self.occupied(grid, x, y):
             sizeLeft -= 1
             # If all coordinates are chosen, return the coordinates
             if sizeLeft < 0:
@@ -123,10 +125,13 @@ def numToCoord(x, y):
 
 # Adds in each key for the grid
 userBoard = {}
+opponentBoard = {}
 for x in range(boardSize):
     for y in range(boardSize):
         userBoard[numToCoord(x + 1, y + 1)] = 0
+        opponentBoard[numToCoord(x + 1, y + 1)] = 0
 
+# Ships placed on user's board
 ships = [
     Ship('Carrier', 5, userBoard),
     Ship('Battleship', 4, userBoard),
@@ -139,14 +144,14 @@ winMsg = '''
  __   __         __      ___      
  \ \ / /__ _  _  \ \    / (_)_ _  
   \ V / _ \ || |  \ \/\/ /| | ' \ 
-   |_|\___/\_,_|   \_/\_/ |_|_||_| 
+   |_|\___/\_,_|   \_/\_/ |_|_||_|
     '''
 
 loseMsg = '''
  __   __          _                
  \ \ / /__ _  _  | |   ___ ___ ___ 
   \ V / _ \ || | | |__/ _ (_-</ -_)
-   |_|\___/\_,_| |____\___/__/\___|                                
+   |_|\___/\_,_| |____\___/__/\___|             
     '''
 
 def drawBoard(grid, showShips):
@@ -167,29 +172,56 @@ def drawBoard(grid, showShips):
 
             # Only display ships if the current board is the user's
             if not showShips and currentPoint == 'X': currentPoint = 'O'
-            print(currentPoint, end='    ')
+            print(currentPoint, end = '    ')
         print('\n')
 
 attackedCoords = []
 
 playersTurn = host # Host goes first
+waitingOnClient = True
 
 # Runs as long as there are ships on the board and turns are left
-while len(ships) > 0 and turns > 0:
+idx = 0
+msg = 'Waiting on the client'
+animation = ['.  ', '.. ', '...']
+# If user is the host and the client isn't connected, display and animation while waiting
+while not client and host:
+    print(msg + animation[idx % len(animation)], end="\r")
+    idx += 1
+    time.sleep(0.5)
+else:
+    waitingOnClient = False
+
+
+while len(ships) > 0 and turns > 0 and not waitingOnClient:
     os.system('cls')
+
+    space = int((boardSize + 3) * 4)
+
+    print('Opponent\'s Board \n'.center(space)) # Label opponent's board
+    drawBoard(opponentBoard, False)
+
+    print('    ' + '____' * (boardSize + 1) + '    ' + '\n') # Draw line
+
+    print('User\'s Board \n'.center(space)) # Label player's board
     drawBoard(userBoard, True)
     
     if playersTurn:
         # Send attack coordinates
-        send(input('Enter a coordinate >>> '))
+        coord = input('Enter a coordinate >>> ')
+        send(coord)
 
-        # Recive state of that point on the board
-        message = receive()
+        message = receive() # Recive state of that point on the board
+
+        if message == 'Miss':
+            opponentBoard[coord] = 2 # Update opponent's board
+        elif message == 'Hit':
+            opponentBoard[coord] = 3 # Update opponent's board
 
         # Game is won
         if message == winMsg:
             if host:
-                server.close() # Closer server
+                server.close() # Close server
 
             os.system('cls') # Clear screen
             print(message) # Display win message
@@ -205,9 +237,11 @@ while len(ships) > 0 and turns > 0:
         coord = receive()
 
         try:
+            # If coordinate has already been attacked, raise an error
             if coord in attackedCoords:
                 raise SyntaxError('Coordinate already attacked')
 
+            # If coordinate isn't valid, raise an error
             if coord not in userBoard.keys():
                 raise IndexError('Not valid coordinate')
 
@@ -233,7 +267,7 @@ while len(ships) > 0 and turns > 0:
             # Get the state of the chosen point and send it to the opponent
             # If a ship was destroyed, that message has priority
             if not shipDestroyed: send(stateOfBoard(userBoard, coord))
-            attackedCoords.append(coord)
+            attackedCoords.append(coord) # Prevents user from attacking the same area
 
             playersTurn = True
         except SyntaxError:
@@ -247,4 +281,4 @@ while len(ships) > 0 and turns > 0:
 
 ### TO-DO ###
 # Make AI to play against?
-# Handle win/lose message over server
+# Add in ability to manually place ships
