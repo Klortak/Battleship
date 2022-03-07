@@ -6,14 +6,9 @@ import os
 
 turns = 100
 
-boardSize = 10
-# Left justify text to keep aligned
+boardSize = 10 # Recommended size
 
 ##################################
-
-# Add support for more than 26 rows
-if boardSize > 26:
-    raise IndexError('Out of bounds')
 
 class Ship():
     def __init__(self, name, size, grid):
