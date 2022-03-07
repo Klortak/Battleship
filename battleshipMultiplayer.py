@@ -1,8 +1,9 @@
 from threading import Thread
 import random
-import time
-import os
 import socket
+import time
+import sys
+import os
 
 ##################################
 host = False
@@ -34,17 +35,17 @@ def connectToClient():
     client, address = server.accept()
     #print(f'Connection with {address[0]} successful')
 
-def sendToClient(text):
-    client.send(text.encode('utf-8'))
+def send(text):
+    if host:
+        client.send(text.encode('utf-8'))
+    else:
+        server.send(text.encode('utf-8'))
 
-def receiveFromClient():
-    return client.recv(1024).decode('utf-8')
-
-def sendToServer(text):
-    server.send(text.encode('utf-8'))
-
-def receiveFromServer():
-    return server.recv(1024).decode('utf-8')
+def receive():
+    if host:
+        return client.recv(1024).decode('utf-8')
+    else:
+        return server.recv(1024).decode('utf-8')
 
 if host:
     t1 = Thread(target = connectToClient)
@@ -130,9 +131,23 @@ ships = [
     Ship('Carrier', 5, userBoard),
     Ship('Battleship', 4, userBoard),
     Ship('Cruiser', 3, userBoard),
-    Ship('Submarine', 2, userBoard),
+    Ship('Submarine', 3, userBoard),
     Ship('Destroyer', 2, userBoard)
 ]
+
+winMsg = '''
+ __   __         __      ___      
+ \ \ / /__ _  _  \ \    / (_)_ _  
+  \ V / _ \ || |  \ \/\/ /| | ' \ 
+   |_|\___/\_,_|   \_/\_/ |_|_||_| 
+    '''
+
+loseMsg = '''
+ __   __          _                
+ \ \ / /__ _  _  | |   ___ ___ ___ 
+  \ V / _ \ || | | |__/ _ (_-</ -_)
+   |_|\___/\_,_| |____\___/__/\___|                                
+    '''
 
 def drawBoard(grid, showShips):
     currentPoint = ''
@@ -155,6 +170,8 @@ def drawBoard(grid, showShips):
             print(currentPoint, end='    ')
         print('\n')
 
+attackedCoords = []
+
 playersTurn = host # Host goes first
 
 # Runs as long as there are ships on the board and turns are left
@@ -164,21 +181,36 @@ while len(ships) > 0 and turns > 0:
     
     if playersTurn:
         # Send attack coordinates
-        sendToClient(input('Enter a coordinate >>> ')) if host else sendToServer(input('Enter a coordinate >>> '))
+        send(input('Enter a coordinate >>> '))
 
         # Recive state of that point on the board
-        message = receiveFromClient() if host else receiveFromServer()
+        message = receive()
 
-        # If a valid coordinate, continue
-        print(message)
-        if '#' not in message:
-            playersTurn = False
+        # Game is won
+        if message == winMsg:
+            if host:
+                server.close() # Closer server
+
+            os.system('cls') # Clear screen
+            print(message) # Display win message
+            sys.exit(0) # Stop program
+        else:
+            # If a valid coordinate, continue
+            print(message)
+            if '#' not in message:
+                playersTurn = False
     else:
         # Get the attack coordinates from the opponent
         print('Opponent\'s turn')
-        coord = receiveFromClient() if host else receiveFromServer()
+        coord = receive()
 
         try:
+            if coord in attackedCoords:
+                raise SyntaxError('Coordinate already attacked')
+
+            if coord not in userBoard.keys():
+                raise IndexError('Not valid coordinate')
+
             shipDestroyed = False
             # Iterate through all ships and check if the coordinates are a viable position
             for ship in ships:
@@ -186,31 +218,33 @@ while len(ships) > 0 and turns > 0:
 
                 # If the ship has been destroyed, remove it from the list to prevent unecessary checks
                 if ship.destroyed:
-                    sendToClient('You sunk my ' + ship.name) if host else sendToClient('You sunk my ' + ship.name)
-                    shipDestroyed = True
                     ships.remove(ship)
+
+                    # All your ships have been destroyed
+                    if len(ships) == 0:
+                        os.system('cls')
+                        send(winMsg) # Send win message to opponent
+                        print(loseMsg) # Display lose message
+                        sys.exit(0)
+
+                    send('You sunk my ' + ship.name)
+                    shipDestroyed = True
 
             # Get the state of the chosen point and send it to the opponent
             # If a ship was destroyed, that message has priority
-            if not shipDestroyed: sendToClient(stateOfBoard(userBoard, coord)) if host else sendToServer(stateOfBoard(userBoard, coord))
+            if not shipDestroyed: send(stateOfBoard(userBoard, coord))
+            attackedCoords.append(coord)
 
             playersTurn = True
-        except:
-            sendToClient('### Please enter a valid coordinate ###') if host else sendToServer('### Please enter ###')
+        except SyntaxError:
+            send('### Coordinate has already been attacked ###')
+        except IndexError:
+            send('### Please enter a valid coordinate ###')
 
     turns -= 1
     time.sleep(1)
-else:
-    os.system('cls')
-
-    if len(ships) > 0:
-        message = 'Boo'
-    else:
-        message = 'Woo'
-
-    print(message)
 
 
 ### TO-DO ###
-# Make AI to play against
-# Multiplayer?
+# Make AI to play against?
+# Handle win/lose message over server
